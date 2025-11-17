@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sistema de Gestión de Tienda Mejorado</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+    /* Estilo para un scrollbar más sutil en webkit (Chrome, Safari) */
+    .custom-scrollbar::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+        background: #f1f1f1;
+        border-radius: 10px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+        background: #c1c1c1;
+        border-radius: 10px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+        background: #a1a1a1;
+    }
+</style>
+</head>
+<body class="bg-gradient-to-br from-blue-50 to-indigo-100 p-4 min-h-screen">
+
+<div id="app"></div>
+
+<div id="modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 hidden z-50">
+    <div class="bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full">
+        <h3 id="modal-titulo" class="text-xl font-bold mb-4"></h3>
+        <p id="modal-mensaje" class="text-gray-700 mb-6"></p>
+        <div id="modal-botones" class="flex justify-end gap-3">
+            </div>
+    </div>
+</div>
+
+<script>
+let state = {
+    compras: [],
+    ventas: [],
+    inventario: [],
+    activeTab: 'inicio',
+    tipoCierre: 'semanal'
+};
+
+// Catalogo de productos
+const catalogoProductos = {
+    'Mujer - Ropa': ['Blusa', 'Camisa', 'Falda', 'Pantalón', 'Vestido', 'Shorts', 'Suéter', 'Chaqueta', 'Ropa interior (brasier, panty)'],
+    'Mujer - Accesorios': ['Cartera', 'Cinturón / correa', 'Collar', 'Cadena', 'Brazalete', 'Aretes', 'Reloj', 'Gorro / sombrero', 'Bufanda'],
+    'Mujer - Calzado': ['Zapatos', 'Sandalias', 'Botines', 'Tacones'],
+    'Mujer - Otros': ['Lentes de sol', 'Mochila pequeña / bolso de mano'],
+    'Hombre - Ropa': ['Camisa', 'Polo / t-shirt', 'Pantalón', 'Jeans', 'Short', 'Chaqueta', 'Suéter', 'Traje formal', 'Ropa interior (boxer, bóxer largo)'],
+    'Hombre - Accesorios': ['Cinturón / correa', 'Reloj', 'Pulsera', 'Gorro / gorra', 'Corbata', 'Cartera / billetera'],
+    'Hombre - Calzado': ['Zapatos formales', 'Tenis deportivos', 'Sandalias', 'Botas'],
+    'Niña - Ropa': ['Vestido', 'Blusa', 'Camiseta', 'Falda', 'Pantalón / leggings', 'Shorts', 'Suéter / chaqueta', 'Ropa interior (pantis, brasier infantil)'],
+    'Niña - Accesorios': ['Mochila pequeña', 'Lazos / cintas para cabello', 'Pulsera / collar infantil', 'Gorro / sombrero'],
+    'Niña - Calzado': ['Zapatos', 'Sandalias', 'Botines', 'Tenis'],
+    'Niño - Ropa': ['Camisa', 'Polo / camiseta', 'Pantalón / jeans', 'Short', 'Suéter / chaqueta', 'Ropa interior (boxer, calzoncillo)'],
+    'Niño - Accesorios': ['Gorra', 'Mochila pequeña', 'Reloj infantil'],
+    'Niño - Calzado': ['Zapatos', 'Tenis', 'Sandalias', 'Botines']
+};
+
+// --- Funciones del Modal (Reemplaza alert/confirm) ---
+const modal = document.getElementById('modal');
+const modalTitulo = document.getElementById('modal-titulo');
+const modalMensaje = document.getElementById('modal-mensaje');
+const modalBotones = document.getElementById('modal-botones');
+
+function cerrarModal() {
+    modal.classList.add('hidden');
+}
+
+function mostrarAlerta(mensaje, titulo = 'Alerta') {
+    modalTitulo.textContent = titulo;
+    modalMensaje.textContent = mensaje;
+    modalBotones.innerHTML = `<button onclick="cerrarModal()" class="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium shadow-md hover:bg-blue-700 transition-colors">Entendido</button>`;
+    modal.classList.remove('hidden');
+}
+
+function mostrarConfirmacion(mensaje, callback, titulo = 'Confirmar') {
+    modalTitulo.textContent = titulo;
+    modalMensaje.textContent = mensaje;
+    modalBotones.innerHTML = `
+        <button onclick="cerrarModal()" class="px-4 py-2 bg-gray-300 text-gray-800 rounded-lg font-medium hover:bg-gray-400 transition-colors">Cancelar</button>
+        <button id="confirm-btn" class="px-4 py-2 bg-red-600 text-white rounded-lg font-medium shadow-md hover:bg-red-700 transition-colors">Confirmar</button>
+    `;
+    // Asignar el callback al botón de confirmar
+    document.getElementById('confirm-btn').onclick = () => {
+        callback();
+        cerrarModal();
+    };
+    modal.classList.remove('hidden');
+}
+// --- Fin Funciones del Modal ---
+
+function cargarDatos(){
+    const compras = localStorage.getItem('compras');
+    const ventas = localStorage.getItem('ventas');
+    const inventario = localStorage.getItem('inventario');
+    if(compras) state.compras = JSON.parse(compras);
+    if(ventas) state.ventas = JSON.parse(ventas);
+    if(inventario) state.inventario = JSON.parse(inventario);
+}
+
+function guardarDatos(){
+    localStorage.setItem('compras', JSON.stringify(state.compras));
+    localStorage.setItem('ventas', JSON.stringify(state.ventas));
+    localStorage.setItem('inventario', JSON.stringify(state.inventario));
+}
+
+// Funciones de agregar
+
+function agregarInventario(categoria, producto, precio, unidades){
+    // Utiliza 'nombre' y 'categoria' para identificar de forma única
+    const item = state.inventario.find(i=>i.categoria===categoria && i.nombre===producto);
+    if(item){
+        item.unidades += parseInt(unidades);
+        item.precio = parseFloat(precio); // Actualiza el precio de costo al de la última compra
+    }else{
+        state.inventario.push({id:Date.now(), categoria, nombre:producto, precio:parseFloat(precio), unidades:parseInt(unidades)});
+    }
+    // No llamamos a render/guardar aquí, se llama desde agregarCompra
+}
+
+function agregarCompra(categoria, producto, precio, cantidad, tipoPago, diasCredito){
+    state.compras.push({
+        id:Date.now(),
+        productoNombre: producto,
+        categoria: categoria,
+        cantidad: parseInt(cantidad),
+        precioUnitario: parseFloat(precio), // Precio de compra (Costo)
+        total: parseFloat(precio)*parseInt(cantidad),
+        fecha:new Date().toISOString(),
+        tipoPago: tipoPago,
+        diasCredito: tipoPago==='credito'?parseInt(diasCredito||0):0,
+        pagado: tipoPago==='contado'
+    });
+    agregarInventario(categoria, producto, precio, cantidad);
+    guardarDatos(); 
+    render();
+}
+
+// *** FUNCIÓN CORREGIDA (de interacción anterior): Venta ***
+function agregarVenta(itemId, cantidad, precioVenta, tipoPago, diasCredito, cliente){
+    const item = state.inventario.find(i=>i.id==itemId);
+    if(!item || item.unidades < parseInt(cantidad)){
+        mostrarAlerta('No hay suficientes unidades en inventario. Unidades disponibles: ' + (item ? item.unidades : 0)); 
+        return;
+    }
+    
+    // CORRECCIÓN: Validar el costo unitario al registrar la venta.
+    const costo = isNaN(item.precio) ? 0 : item.precio;
+    
+    // Reducir inventario
+    item.unidades -= parseInt(cantidad);
+    
+    // Registrar la venta
+    state.ventas.push({
+        id:Date.now(),
+        productoNombre:item.nombre,
+        categoria:item.categoria,
+        cantidad:parseInt(cantidad),
+        costoUnitario: costo,
+        precioUnitario: parseFloat(precioVenta),
+        total: parseFloat(precioVenta) * parseInt(cantidad),
+        gananciaBruta: (parseFloat(precioVenta) - costo) * parseInt(cantidad), // Usa costo validado
+        fecha:new Date().toISOString(),
+        tipoPago:tipoPago,
+        diasCredito:tipoPago==='credito'?parseInt(diasCredito||0):0,
+        pagado:tipoPago==='contado',
+        cliente:cliente||'Cliente anónimo'
+    });
+    
+    guardarDatos(); 
+    render();
+}
+// *** FIN FUNCIÓN VENTA ***
+
+function marcarPagado(id, tipo){
+    if(tipo==='venta'){
+        const venta = state.ventas.find(v=>v.id===id); if(venta) venta.pagado=true;
+    }else{
+        const compra = state.compras.find(c=>c.id===id); if(compra) compra.pagado=true;
+    }
+    guardarDatos(); render();
+}
+
+function eliminar(id,tipo){
+    mostrarConfirmacion('¿Está seguro de que desea eliminar este registro? Esta acción no se puede deshacer.', () => {
+        if(tipo==='inventario') state.inventario = state.inventario.filter(i=>i.id!==id);
+        if(tipo==='venta') state.ventas = state.ventas.filter(v=>v.id!==id);
+        if(tipo==='compra') state.compras = state.compras.filter(c=>c.id!==id);
+        guardarDatos(); 
+        render();
+    });
+}
+
+function obtenerAtrasados(){
+    const ahora = new Date();
+    return state.ventas.filter(v=>!v.pagado && v.tipoPago==='credito').map(v=>{
+        const fechaVenta = new Date(v.fecha);
+        const fechaLimite = new Date(fechaVenta.getTime()+v.diasCredito*24*60*60*1000);
+        const diasAtraso = Math.floor((ahora-fechaLimite)/(1000*60*60*24));
+        return {...v,diasAtraso, fechaLimite};
+    }).filter(v=>v.diasAtraso>0);
+}
+
+// *** FUNCIÓN CORREGIDA PARA PREVENIR ERRORES AL CARGAR DATOS NaN ***
+function calcularStats(){
+    const dias = state.tipoCierre==='semanal'?7:state.tipoCierre==='quincenal'?15:30;
+    const fechaInicio = new Date(); fechaInicio.setDate(fechaInicio.getDate()-dias);
+    
+    const ventasPeriodo = state.ventas.filter(v=>new Date(v.fecha)>=fechaInicio);
+    const comprasPeriodo = state.compras.filter(c=>new Date(c.fecha)>=fechaInicio);
+    
+    // Total de Flujo de Caja Estimado (Ventas - Compras)
+    const totalVentas = ventasPeriodo.reduce((sum,v)=>sum+v.total,0);
+    const totalCompras = comprasPeriodo.reduce((sum,c)=>sum+c.total,0);
+
+    // --- CORRECCIÓN CLAVE AQUÍ ---
+    // Aseguramos que si gananciaBruta es NaN (de datos antiguos), se use 0.
+    const totalGananciaBruta = ventasPeriodo.reduce((sum, v) => sum + (isNaN(v.gananciaBruta) ? 0 : v.gananciaBruta), 0);
+    // -----------------------------
+    
+    const productosVentaStats={};
+    ventasPeriodo.forEach(v=>{
+        const ganancia = isNaN(v.gananciaBruta) ? 0 : v.gananciaBruta; // Aplicamos la misma verificación
+        if(!productosVentaStats[v.productoNombre]) {
+            productosVentaStats[v.productoNombre]={cantidad:0, totalVendido:0, totalGanancia:0};
+        }
+        productosVentaStats[v.productoNombre].cantidad+=v.cantidad;
+        productosVentaStats[v.productoNombre].totalVendido+=v.total;
+        productosVentaStats[v.productoNombre].totalGanancia+=ganancia;
+    });
+
+    // Top 5 Productos Vendidos (por Total Vendido)
+    const topProductosVendidos=Object.entries(productosVentaStats).map(([nombre,data])=>({
+        nombre,
+        cantidad:data.cantidad,
+        total:data.totalVendido,
+        porcentaje: totalVentas>0?((data.totalVendido/totalVentas)*100).toFixed(1):0
+    })).sort((a,b)=>b.total-a.total).slice(0,5);
+
+    // Top 5 Productos más Rentables (por Ganancia Bruta)
+    const topProductosRentables=Object.entries(productosVentaStats).map(([nombre,data])=>({
+        nombre,
+        ganancia:data.totalGanancia,
+        // Usamos totalGananciaBruta (que ya fue limpiado de NaN) para el porcentaje
+        porcentaje: totalGananciaBruta>0?((data.totalGanancia/totalGananciaBruta)*100).toFixed(1):0
+    })).sort((a,b)=>b.ganancia-a.ganancia).slice(0,5);
+    
+    return {totalVentas, totalCompras, ganancia: totalGananciaBruta, cantVentas:ventasPeriodo.length, cantCompras:comprasPeriodo.length, topProductosVendidos, topProductosRentables};
+}
+// *** FIN FUNCIÓN CORREGIDA ***
+// --- Funciones de UI ---
+function actualizarProductos(selectIdPrefix){
+    const categoria = document.getElementById('cat-'+selectIdPrefix).value;
+    const productSelect = document.getElementById('prod-'+selectIdPrefix);
+    productSelect.innerHTML='<option value="">Seleccionar producto</option>';
+    if(categoria && catalogoProductos[categoria]){
+        catalogoProductos[categoria].forEach(p=>{productSelect.innerHTML+=`<option value="${p}">${p}</option>`});
+    }
+}
+
+function toggleCredito(formPrefix){
+    const tipoPago = document.getElementById('pago-'+formPrefix).value;
+    const diasCreditoInput = document.getElementById('credito-'+formPrefix);
+    if(tipoPago === 'credito'){
+        diasCreditoInput.classList.remove('hidden');
+        diasCreditoInput.required = true;
+    } else {
+        diasCreditoInput.classList.add('hidden');
+        diasCreditoInput.required = false;
+        diasCreditoInput.value = '';
+    }
+}
+
+function formatCurrency(value) {
+    // Si el valor es NaN, muestra $0.00
+    if (isNaN(value)) return '$0.00'; 
+    const sign = value < 0 ? '-' : '';
+    const absoluteValue = Math.abs(value);
+    return sign + '$' + absoluteValue.toFixed(2).replace(/\d(?=(\d{3})+\.)/g, '$&,');
+}
+
+function formatDate(dateString) {
+    return new Date(dateString).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+// --- Función Principal de Renderizado ---
+function render(){
+    const stats = calcularStats();
+    const atrasados = obtenerAtrasados();
+    let html = `<div class="max-w-7xl mx-auto">
+        <div class="bg-white rounded-xl shadow-xl mb-6">
+            <div class="bg-gradient-to-r from-blue-600 to-indigo-600 p-6 text-white rounded-t-xl">
+                <h1 class="text-3xl font-bold mb-2">Sistema de Gestión de Tienda</h1>
+                <p class="opacity-90">Control completo de compras, ventas y finanzas</p>
+            </div>
+            <div class="flex border-b overflow-x-auto custom-scrollbar">
+                <button onclick="state.activeTab='inicio';render()" class="px-6 py-4 font-medium whitespace-nowrap ${state.activeTab==='inicio'?'border-b-2 border-blue-600 text-blue-600':'text-gray-600 hover:bg-gray-50'}">📊 Inicio</button>
+                <button onclick="state.activeTab='compras';render()" class="px-6 py-4 font-medium whitespace-nowrap ${state.activeTab==='compras'?'border-b-2 border-blue-600 text-blue-600':'text-gray-600 hover:bg-gray-50'}">🛒 Compras</button>
+                <button onclick="state.activeTab='ventas';render()" class="px-6 py-4 font-medium whitespace-nowrap ${state.activeTab==='ventas'?'border-b-2 border-blue-600 text-blue-600':'text-gray-600 hover:bg-gray-50'}">💰 Ventas</button>
+                <button onclick="state.activeTab='inventario';render()" class="px-6 py-4 font-medium whitespace-nowrap ${state.activeTab==='inventario'?'border-b-2 border-blue-600 text-blue-600':'text-gray-600 hover:bg-gray-50'}">📦 Inventario</button>
+                <button onclick="state.activeTab='alertas';render()" class="px-6 py-4 font-medium whitespace-nowrap flex items-center ${state.activeTab==='alertas'?'border-b-2 border-red-600 text-red-600':'text-gray-600 hover:bg-gray-50'}">
+                    ⚠️ Alertas 
+                    ${atrasados.length>0?`<span class="bg-red-500 text-white text-xs rounded-full px-2 py-0.5 ml-2">${atrasados.length}</span>`:''}
+                </button>
+            </div>
+        </div>
+        <div class="bg-white rounded-xl shadow-lg p-6">`;
+    // --- Pestaña: Inicio (antes Dashboard) ---
+    if(state.activeTab==='inicio'){
+        html+=`<div class="flex justify-between items-center mb-4">
+            <h2 class="text-2xl font-bold">Resumen Financiero</h2>
+            <select id="tipo-cierre" class="border rounded-lg px-3 py-1.5" onchange="state.tipoCierre=this.value;render()">
+                <option value="semanal" ${state.tipoCierre==='semanal'?'selected':''}>Últimos 7 días</option>
+                <option value="quincenal" ${state.tipoCierre==='quincenal'?'selected':''}>Últimos 15 días</option>
+                <option value="mensual" ${state.tipoCierre==='mensual'?'selected':''}>Últimos 30 días</option>
+            </select>
+        </div>
+        <div class="grid md:grid-cols-4 gap-6 mb-8">
+            <div class="bg-green-100 text-green-800 rounded-xl p-6 shadow-md border border-green-200">
+                <div class="text-sm font-medium uppercase">Ventas Totales</div>
+                <div class="text-3xl font-bold">${formatCurrency(stats.totalVentas)}</div>
+                <div class="text-sm text-green-600">${stats.cantVentas} transacciones</div>
+            </div>
+            <div class="bg-red-100 text-red-800 rounded-xl p-6 shadow-md border border-red-200">
+                <div class="text-sm font-medium uppercase">Compras Totales</div>
+                <div class="text-3xl font-bold">${formatCurrency(stats.totalCompras)}</div>
+                <div class="text-sm text-red-600">${stats.cantCompras} transacciones</div>
+            </div>
+            <div class="bg-purple-100 text-purple-800 rounded-xl p-6 shadow-md border border-purple-200">
+                <div class="text-sm font-medium uppercase">Ganancia Bruta Producto</div>
+                <div class="text-3xl font-bold">${formatCurrency(stats.ganancia)}</div>
+                <div class="text-sm ${stats.ganancia >= 0 ? 'text-purple-600' : 'text-red-600'}">(Venta - Costo)</div>
+            </div>
+            <div class="bg-blue-100 text-blue-800 rounded-xl p-6 shadow-md border border-blue-200">
+                <div class="text-sm font-medium uppercase">Flujo de Caja Estimado</div>
+                <div class="text-3xl font-bold">${formatCurrency(stats.totalVentas - stats.totalCompras)}</div>
+                <div class="text-sm ${stats.totalVentas - stats.totalCompras >= 0 ? 'text-blue-600' : 'text-red-600'}">(Ventas - Compras)</div>
+            </div>
+        </div>
+        
+        <div class="grid md:grid-cols-2 gap-8">
+            <div>
+                <h2 class="text-2xl font-bold mb-4">Top 5 Productos Vendidos</h2>
+                <div class="overflow-x-auto custom-scrollbar">
+                    <table class="w-full text-left">
+                        <thead><tr class="bg-gray-100"><th class="p-3">Producto</th><th class="p-3">Cantidad</th><th class="p-3">Total Vendido</th><th class="p-3">% del Total</th></tr></thead>
+                        <tbody>
+                        ${stats.topProductosVendidos.map(p=>`
+                            <tr class="border-b hover:bg-gray-50">
+                                <td class="p-3">${p.nombre}</td>
+                                <td class="p-3">${p.cantidad}</td>
+                                <td class="p-3">${formatCurrency(p.total)}</td>
+                                <td class="p-3">
+                                    <div class="w-full bg-gray-200 rounded-full h-2.5">
+                                        <div class="bg-blue-600 h-2.5 rounded-full" style="width: ${p.porcentaje}%"></div>
+                                    </div>
+                                    <span class="text-xs">${p.porcentaje}%</span>
+                                </td>
+                            </tr>`).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div>
+                <h2 class="text-2xl font-bold mb-4">Top 5 Productos Más Rentables 🌟</h2>
+                <div class="overflow-x-auto custom-scrollbar">
+                    <table class="w-full text-left">
+                        <thead><tr class="bg-gray-100"><th class="p-3">Producto</th><th class="p-3">Ganancia Bruta</th><th class="p-3">% de la Ganancia</th></tr></thead>
+                        <tbody>
+                        ${stats.topProductosRentables.map(p=>`
+                            <tr class="border-b hover:bg-gray-50">
+                                <td class="p-3">${p.nombre}</td>
+                                <td class="p-3 font-semibold text-purple-700">${formatCurrency(p.ganancia)}</td>
+                                <td class="p-3">
+                                    <div class="w-full bg-gray-200 rounded-full h-2.5">
+                                        <div class="bg-purple-600 h-2.5 rounded-full" style="width: ${p.porcentaje}%"></div>
+                                    </div>
+                                    <span class="text-xs">${p.porcentaje}%</span>
+                                </td>
+                            </tr>`).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>`;
+    }
+    
+    // --- Pestaña: Compras ---
+    if(state.activeTab==='compras'){
+         html+=`<h2 class="text-2xl font-bold mb-4">Registrar Compra</h2>
+            <form id="form-compra" class="grid md:grid-cols-3 gap-4 p-4 border rounded-xl bg-gray-50 mb-8">
+                <div>
+                    <label for="cat-compra" class="block text-sm font-medium text-gray-700 mb-1">Categoría</label>
+                    <select id="cat-compra" class="w-full border border-gray-300 rounded-lg px-3 py-2 shadow-sm" onchange="actualizarProductos('compra')" required>
+                        <option value="">Seleccionar categoría</option>
+                        ${Object.keys(catalogoProductos).map(c => `<option value="${c}">${c}</option>`).join('')}
+                    </select>
+                </div>
+                <div>
+                    <label for="prod-compra" class="block text-sm font-medium text-gray-700 mb-1">Producto</label>
+                    <select id="prod-compra" class="w-full border border-gray-300 rounded-lg px-3 py-2 shadow-sm" required>
+                        <option value="">Seleccionar producto</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="precio-compra" class="block text-sm font-medium text-gray-700 mb-1">Precio Unit. (Compra)</label>
+                    <input id="precio-compra" type="number" step="0.01" min="0" class="w-full border border-gray-300 rounded-lg px-3 py-2 shadow-sm" required>
+                </div>
+                <div>
+                    <label for="cant-compra" class="block text-sm font-medium text-gray-700 mb-1">Cantidad</label>
+                    <input id="cant-compra" type="number" min="1" class="w-full border border-gray-300 rounded-lg px-3 py-2 shadow-sm" required>
+                </div>
+                <div>
+                    <label for="pago-compra" class="block text-sm font-medium text-gray-700 mb-1">Tipo de Pago</label>
+                    <select id="pago-compra" class="w-full border border-gray-300 rounded-lg px-3 py-2 shadow-sm" onchange="toggleCredito('compra')">
+                        <option value="contado">Contado</option>
+                        <option value="credito">Crédito</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="credito-compra" class="block text-sm font-medium text-gray-700 mb-1">Días de Crédito</label>
+                    <input id="credito-compra" type="number" min="1" class="w-full border border-gray-300 rounded-lg px-3 py-2 shadow-sm hidden" placeholder="Ej: 30">
+                </div>
+                <div class="md:col-span-3 flex justify-end">
+                    <button type="submit" class="px-6 py-2 bg-blue-600 text-white font-medium rounded-lg shadow-md hover:bg-blue-700 transition-colors">Registrar Compra</button>
+                </div>
+            </form>
+            <h2 class="text-2xl font-bold mb-4">Historial de Compras</h2>
+            <div class="overflow-x-auto custom-scrollbar">
+                <table class="w-full text-left border-collapse">
+                    <thead><tr class="bg-gray-100"><th class="p-3">Fecha</th><th class="p-3">Producto</th><th class="p-3">Total</th><th class="p-3">Pago</th><th class="p-3">Estado</th><th class="p-3">Acciones</th></tr></thead>
+                    <tbody>
+                    ${state.compras.sort((a,b) => new Date(b.fecha) - new Date(a.fecha)).map(c=>`
+                        <tr class="border-b hover:bg-gray-50">
+                            <td class="p-3">${formatDate(c.fecha)}</td>
+                            <td class="p-3">${c.productoNombre} <span class="text-xs text-gray-500">(${c.cantidad}x${formatCurrency(c.precioUnitario)})</span></td>
+                            <td class="p-3 font-medium">${formatCurrency(c.total)}</td>
+                            <td class="p-3">${c.tipoPago} ${c.tipoPago==='credito'?`(${c.diasCredito}d)`:''}</td>
+                            <td class="p-3">${c.pagado ? '<span class="text-green-600 font-medium">Pagado</span>' : '<span class="text-red-600 font-medium">Pendiente</span>'}</td>
+                            <td class="p-3">
+                                ${!c.pagado ? `<button class="bg-blue-500 text-white px-3 py-1 rounded-lg text-sm font-medium shadow-md hover:bg-blue-600 mr-2" onclick="marcarPagado(${c.id},'compra')">Pagar</button>` : ''}
+                                <button class="bg-red-500 text-white px-3 py-1 rounded-lg text-sm font-medium shadow-md hover:bg-red-600" onclick="eliminar(${c.id},'compra')">X</button>
+                            </td>
+                        </tr>`).join('')}
+                    </tbody>
+                </table>
+            </div>`;
+    }
+    
+    // --- Pestaña: Ventas ---
+    if(state.activeTab==='ventas'){
+        html+=`<h2 class="text-2xl font-bold mb-4">Registrar Venta</h2>
+            <form id="form-venta" class="grid md:grid-cols-4 gap-4 p-4 border rounded-xl bg-gray-50 mb-8">
+                <div>
+                    <label for="item-venta" class="block text-sm font-medium text-gray-700 mb-1">Producto (de Inventario)</label>
+                    <select id="item-venta" class="w-full border border-gray-300 rounded-lg px-3 py-2 shadow-sm" required>
+                        <option value="">Seleccionar producto</option>
+                        ${state.inventario.map(i => `<option value="${i.id}">${i.nombre} (${i.categoria}) - ${i.unidades} disp.</option>`).join('')}
+                    </select>
+                </div>
+                <div>
+                    <label for="cant-venta" class="block text-sm font-medium text-gray-700 mb-1">Cantidad</label>
+                    <input id="cant-venta" type="number" min="1" class="w-full border border-gray-300 rounded-lg px-3 py-2 shadow-sm" required>
+                </div>
+                <div>
+                    <label for="precio-venta" class="block text-sm font-medium text-gray-700 mb-1">Precio de Venta (Unit.)</label>
+                    <input id="precio-venta" type="number" step="0.01" min="0" class="w-full border border-gray-300 rounded-lg px-3 py-2 shadow-sm" required>
+                </div>
+                <div>
+                    <label for="cliente-venta" class="block text-sm font-medium text-gray-700 mb-1">Cliente (Opcional)</label>
+                    <input id="cliente-venta" type="text" class="w-full border border-gray-300 rounded-lg px-3 py-2 shadow-sm" placeholder="Cliente anónimo">
+                </div>
+                <div>
+                    <label for="pago-venta" class="block text-sm font-medium text-gray-700 mb-1">Tipo de Pago</label>
+                    <select id="pago-venta" class="w-full border border-gray-300 rounded-lg px-3 py-2 shadow-sm" onchange="toggleCredito('venta')">
+                        <option value="contado">Contado</option>
+                        <option value="credito">Crédito</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="credito-venta" class="block text-sm font-medium text-gray-700 mb-1">Días de Crédito</label>
+                    <input id="credito-venta" type="number" min="1" class="w-full border border-gray-300 rounded-lg px-3 py-2 shadow-sm hidden" placeholder="Ej: 15">
+                </div>
+                <div class="md:col-span-4 flex justify-end">
+                    <button type="submit" class="px-6 py-2 bg-green-600 text-white font-medium rounded-lg shadow-md hover:bg-green-700 transition-colors">Registrar Venta</button>
+                </div>
+            </form>
+            
+            <h2 class="text-2xl font-bold mb-4">Historial de Ventas</h2>
+            <div class="overflow-x-auto custom-scrollbar">
+                <table class="w-full text-left border-collapse">
+                    <thead><tr class="bg-gray-100"><th class="p-3">Fecha</th><th class="p-3">Producto</th><th class="p-3">Cliente</th><th class="p-3">Total</th><th class="p-3">Ganancia Bruta</th><th class="p-3">Pago</th><th class="p-3">Estado</th><th class="p-3">Acciones</th></tr></thead>
+                    <tbody>
+                    ${state.ventas.sort((a,b) => new Date(b.fecha) - new Date(a.fecha)).map(v=>`
+                        <tr class="border-b hover:bg-gray-50">
+                            <td class="p-3">${formatDate(v.fecha)}</td>
+                            <td class="p-3">${v.productoNombre} <span class="text-xs text-gray-500">(${v.cantidad}x${formatCurrency(v.precioUnitario)})</span></td>
+                            <td class="p-3">${v.cliente}</td>
+                            <td class="p-3 font-medium">${formatCurrency(v.total)}</td>
+                            <td class="p-3 text-purple-700">${formatCurrency(v.gananciaBruta)}</td>
+                            <td class="p-3">${v.tipoPago} ${v.tipoPago==='credito'?`(${v.diasCredito}d)`:''}</td>
+                            <td class="p-3">${v.pagado ? '<span class="text-green-600 font-medium">Pagado</span>' : '<span class="text-red-600 font-medium">Pendiente</span>'}</td>
+                            <td class="p-3">
+                                ${!v.pagado ? `<button class="bg-blue-500 text-white px-3 py-1 rounded-lg text-sm font-medium shadow-md hover:bg-blue-600 mr-2" onclick="marcarPagado(${v.id},'venta')">Pagar</button>` : ''}
+                                <button class="bg-red-500 text-white px-3 py-1 rounded-lg text-sm font-medium shadow-md hover:bg-red-600" onclick="eliminar(${v.id},'venta')">X</button>
+                            </td>
+                        </tr>`).join('')}
+                    </tbody>
+                </table>
+            </div>`;
+    }
+
+    // --- Pestaña: Inventario ---
+    if(state.activeTab==='inventario'){
+        html+=`<h2 class="text-2xl font-bold mb-4">Inventario</h2>
+            <div class="overflow-x-auto custom-scrollbar">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="bg-gray-100"><th class="p-3">Producto</th><th class="p-3">Categoría</th><th class="p-3">Precio Compra (Costo)</th><th class="p-3">Unidades</th><th class="p-3">Acciones</th></tr>
+                    </thead>
+                    <tbody>
+                        ${state.inventario.map(i=>`<tr class="border-b hover:bg-gray-50"><td class="p-3">${i.nombre}</td><td class="p-3">${i.categoria}</td><td class="p-3">${formatCurrency(i.precio)}</td><td class="p-3 font-medium">${i.unidades}</td><td class="p-3"><button class="bg-red-500 text-white px-3 py-1 rounded-lg text-sm font-medium shadow-md hover:bg-red-600" onclick="eliminar(${i.id},'inventario')">Eliminar</button></td></tr>`).join('')}
+                    </tbody>
+                </table>
+            </div>`;
+    }
+    
+    // --- Pestaña: Alertas ---
+    if(state.activeTab==='alertas'){
+        html+=`<h2 class="text-2xl font-bold mb-4">Alertas de Cobranza</h2>
+            <div class="overflow-x-auto custom-scrollbar">
+                <table class="w-full text-left border-collapse">
+                    <thead><tr class="bg-red-100"><th class="p-3">Cliente</th><th class="p-3">Producto</th><th class="p-3">Total</th><th class="p-3">Fecha Límite</th><th class="p-3">Días Atraso</th><th class="p-3">Acción</th></tr></thead>
+                    <tbody>
+                    ${atrasados.sort((a,b) => b.diasAtraso - a.diasAtraso).map(v=>`
+                        <tr class="border-b hover:bg-red-50">
+                            <td class="p-3">${v.cliente}</td>
+                            <td class="p-3">${v.productoNombre}</td>
+                            <td class="p-3 font-medium">${formatCurrency(v.total)}</td>
+                            <td class="p-3 text-red-700 font-medium">${formatDate(v.fechaLimite)}</td>
+                            <td class="p-3 text-red-700 font-bold text-lg">${v.diasAtraso}</td>
+                            <td class="p-3">
+                                <button class="bg-blue-500 text-white px-3 py-1 rounded-lg text-sm font-medium shadow-md hover:bg-blue-600" onclick="marcarPagado(${v.id},'venta')">Marcar Pagado</button>
+                            </td>
+                        </tr>`).join('')}
+                    ${atrasados.length === 0 ? '<tr><td colspan="6" class="p-4 text-center text-gray-500">No hay alertas de cobranza.</td></tr>' : ''}
+                    </tbody>
+                </table>
+            </div>`;
+    }
+
+    html+=`</div></div>`;
+    document.getElementById('app').innerHTML = html;
+
+    // --- Adjuntar Event Listeners ---
+    
+    if(state.activeTab==='compras'){
+        document.getElementById('form-compra').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const categoria = document.getElementById('cat-compra').value;
+            const producto = document.getElementById('prod-compra').value;
+            const precio = document.getElementById('precio-compra').value;
+            const cantidad = document.getElementById('cant-compra').value;
+            const tipoPago = document.getElementById('pago-compra').value;
+            const diasCredito = document.getElementById('credito-compra').value;
+            
+            if(!categoria || !producto || !precio || !cantidad) {
+                mostrarAlerta('Por favor, complete todos los campos obligatorios.');
+                return;
+            }
+            
+            agregarCompra(categoria, producto, precio, cantidad, tipoPago, diasCredito);
+            e.target.reset(); // Limpia el formulario
+            actualizarProductos('compra'); // Resetea el dropdown de productos
+        });
+    }
+
+    if(state.activeTab==='ventas'){
+        document.getElementById('form-venta').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const itemId = document.getElementById('item-venta').value;
+            const cantidad = document.getElementById('cant-venta').value;
+            const precioVenta = document.getElementById('precio-venta').value;
+            const cliente = document.getElementById('cliente-venta').value;
+            const tipoPago = document.getElementById('pago-venta').value;
+            const diasCredito = document.getElementById('credito-venta').value;
+            
+            if(!itemId || !cantidad || !precioVenta) {
+                mostrarAlerta('Debe seleccionar un producto, especificar la cantidad y el precio de venta.');
+                return;
+            }
+            
+            agregarVenta(itemId, cantidad, precioVenta, tipoPago, diasCredito, cliente);
+            e.target.reset(); // Limpia el formulario
+        });
+    }
+
+}
+
+// Carga inicial
+cargarDatos();
+render();
+</script>
+</body>
+</html>
